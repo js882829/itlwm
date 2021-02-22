@@ -126,6 +126,7 @@ struct ieee80211_htframe_addr4 {	/* 11n */
 #define	IEEE80211_FC0_TYPE_MGT			0x00
 #define	IEEE80211_FC0_TYPE_CTL			0x04
 #define	IEEE80211_FC0_TYPE_DATA			0x08
+#define IEEE80211_FC0_TYPE_ORDER        0x8000
 
 #define	IEEE80211_FC0_SUBTYPE_MASK		0xf0
 #define	IEEE80211_FC0_SUBTYPE_SHIFT		4
@@ -299,6 +300,41 @@ ieee80211_get_qos(const struct ieee80211_frame *wh)
 
 	return letoh16(*(const u_int16_t *)frm);
 }
+
+static __inline int
+ieee80211_is_ctl(const struct ieee80211_frame *wh)
+{
+    return (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
+           IEEE80211_FC0_TYPE_CTL;
+}
+
+static __inline int
+ieee80211_is_data(const struct ieee80211_frame *wh)
+{
+    return (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
+           IEEE80211_FC0_TYPE_DATA;
+}
+
+static __inline int
+ieee80211_is_mgmt(const struct ieee80211_frame *wh)
+{
+    return (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
+           IEEE80211_FC0_TYPE_MGT;
+}
+
+static __inline int
+ieee80211_is_qos_nullfunc(const struct ieee80211_frame *wh)
+{
+    return (wh->i_fc[0] & (IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_MASK)) ==
+           (IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_CTS);
+}
+
+static __inline int
+ieee80211_has_order(const struct ieee80211_frame *wh)
+{
+    return (wh->i_fc[0] & IEEE80211_FC0_TYPE_ORDER) != 0;
+}
+
 #endif	/* _KERNEL */
 
 /*
@@ -363,9 +399,9 @@ enum {
 	IEEE80211_ELEMID_TCLAS			= 44,
 	IEEE80211_ELEMID_HTCAPS			= 45,	/* 11n */
 	IEEE80211_ELEMID_QOS_CAP		= 46,
-	/* 47 reserved */
+	/* 47 reserved for Broadcom */
 	IEEE80211_ELEMID_RSN			= 48,
-	/* 49 reserved */
+	IEEE80211_ELEMID_802_15_COEX    = 49,
 	IEEE80211_ELEMID_XRATES			= 50,
 	IEEE80211_ELEMID_AP_CHNL_REPORT		= 51,
 	IEEE80211_ELEMID_NBR_REPORT		= 52,
@@ -443,11 +479,11 @@ enum {
 	IEEE80211_ELEMID_MESHGANN		= 125,
 	IEEE80211_ELEMID_MESHRANN		= 126,
 	IEEE80211_ELEMID_XCAPS			= 127,
-	/* 128-129 reserved */
+	/* 128-129 reserved for Agere */
 	IEEE80211_ELEMID_MESHPREQ		= 130,
 	IEEE80211_ELEMID_MESHPREP		= 131,
 	IEEE80211_ELEMID_MESHPERR		= 132,
-	/* 133-136 reserved */
+	/* 133-136 reserved for Cisco */
 	IEEE80211_ELEMID_MESHPXU		= 137,
 	IEEE80211_ELEMID_MESHPXUC		= 138,
 	IEEE80211_ELEMID_AUTH_MESH_PEERING_XCHG	= 139,
@@ -455,14 +491,69 @@ enum {
 	IEEE80211_ELEMID_DEST_URI		= 141,
 	IEEE80211_ELEMID_U_APSD_COEX		= 142,
 	/* 143-174 reserved */
+    IEEE80211_ELEMID_WAKEUP_SCHEDULE    = 143,
+    IEEE80211_ELEMID_EXT_SCHEDULE       = 144,
+    IEEE80211_ELEMID_STA_AVAILABILITY   = 145,
+    IEEE80211_ELEMID_DMG_TSPEC          = 146,
+    IEEE80211_ELEMID_DMG_AT             = 147,
+    IEEE80211_ELEMID_DMG_CAP            = 148,
+    /* 149 reserved for Cisco */
+    IEEE80211_ELEMID_CISCO_VENDOR_SPECIFIC  = 150,
+    IEEE80211_ELEMID_DMG_OPERATION          = 151,
+    IEEE80211_ELEMID_DMG_BSS_PARAM_CHANGE   = 152,
+    IEEE80211_ELEMID_DMG_BEAM_REFINEMENT    = 153,
+    IEEE80211_ELEMID_CHANNEL_MEASURE_FEEDBACK = 154,
+    /* 155-156 reserved for Cisco */
+    IEEE80211_ELEMID_AWAKE_WINDOW           = 157,
+    IEEE80211_ELEMID_MULTI_BAND             = 158,
+    IEEE80211_ELEMID_ADDBA_EXT              = 159,
+    IEEE80211_ELEMID_NEXT_PCP_LIST          = 160,
+    IEEE80211_ELEMID_PCP_HANDOVER           = 161,
+    IEEE80211_ELEMID_DMG_LINK_MARGIN        = 162,
+    IEEE80211_ELEMID_SWITCHING_STREAM       = 163,
+    IEEE80211_ELEMID_SESSION_TRANSITION     = 164,
+    IEEE80211_ELEMID_DYN_TONE_PAIRING_REPORT = 165,
+    IEEE80211_ELEMID_CLUSTER_REPORT         = 166,
+    IEEE80211_ELEMID_RELAY_CAP              = 167,
+    IEEE80211_ELEMID_RELAY_XFER_PARAM_SET   = 168,
+    IEEE80211_ELEMID_BEAM_LINK_MAINT        = 169,
+    IEEE80211_ELEMID_MULTIPLE_MAC_ADDR      = 170,
+    IEEE80211_ELEMID_U_PID                  = 171,
+    IEEE80211_ELEMID_DMG_LINK_ADAPT_ACK     = 172,
+    /* 173 reserved for Symbol */
 	IEEE80211_ELEMID_MCCAOP_ADVERT_OVIEW	= 174,
-	/* 175-220 reserved */
+    IEEE80211_ELEMID_QUIET_PERIOD_REQ       = 175,
+    /* 176 reserved for Symbol */
+    IEEE80211_ELEMID_QUIET_PERIOD_RESP      = 177,
+	/* 178-179 reserved for Symbol */
+    /* 180 reserved for ISO/IEC 20011 */
+    IEEE80211_ELEMID_EPAC_POLICY            = 182,
+    IEEE80211_ELEMID_CLISTER_TIME_OFF       = 183,
+    IEEE80211_ELEMID_INTER_AC_PRIO          = 184,
+    IEEE80211_ELEMID_SCS_DESCRIPTOR         = 185,
+    IEEE80211_ELEMID_QLOAD_REPORT           = 186,
+    IEEE80211_ELEMID_HCCA_TXOP_UPDATE_COUNT = 187,
+    IEEE80211_ELEMID_HL_STREAM_ID           = 188,
+    IEEE80211_ELEMID_GCR_GROUP_ADDR         = 189,
+    IEEE80211_ELEMID_ANTENNA_SECTOR_ID_PATTERN = 190,
     /* 802.11ac */
     IEEE80211_ELEMID_VHT_CAP    = 191,
     IEEE80211_ELEMID_VHT_OPMODE    = 192,
+    IEEE80211_ELEMID_EXTENDED_BSS_LOAD = 193,
+    IEEE80211_ELEMID_WIDE_BW_CHANNEL_SWITCH = 194,
     IEEE80211_ELEMID_VHT_PWR_ENV    = 195,
-	IEEE80211_ELEMID_VENDOR			= 221	/* vendor private */
-	/* 222-255 reserved */
+    IEEE80211_ELEMID_CHANNEL_SWITCH_WRAPPER = 196,
+    IEEE80211_ELEMID_AID            = 197,
+    IEEE80211_ELEMID_QUIET_CHANNEL  = 198,
+    IEEE80211_ELEMID_OPMODE_NOTIF   = 199,
+	IEEE80211_ELEMID_VENDOR			= 221,	/* vendor private */
+    IEEE80211_ELEMID_QOS_PARAMETER  = 222,
+    IEEE80211_ELEMID_CAG_NUMBER     = 237,
+    IEEE80211_ELEMID_AP_CSN         = 239,
+    IEEE80211_ELEMID_FILS_INDICATION = 240,
+    IEEE80211_ELEMID_DILS           = 241,
+    IEEE80211_ELEMID_FRAGMENT       = 242,
+    IEEE80211_ELEMID_EXTENSION      = 255,
 };
 
 /*
@@ -775,6 +866,21 @@ enum ieee80211_edca_ac {
 #define IEEE80211_AUTH_ALG_LEAP			0x0080
 
 /*
+ * 802.11n HT Capability IE
+ * NB: these reflect D1.10
+ */
+struct ieee80211_ie_htcap {
+    uint8_t        hc_id;            /* element ID */
+    uint8_t        hc_len;            /* length in bytes */
+    uint16_t    hc_cap;            /* HT caps (see below) */
+    uint8_t        hc_param;        /* HT params (see below) */
+    uint8_t     hc_mcsset[16];         /* supported MCS set */
+    uint16_t    hc_extcap;        /* extended HT capabilities */
+    uint32_t    hc_txbf;        /* txbf capabilities */
+    uint8_t        hc_antenna;        /* antenna capabilities */
+} __packed;
+
+/*
  * Authentication Transaction Sequence Number field (see 7.3.1.2).
  */
 enum {
@@ -901,6 +1007,17 @@ enum {
 	(sizeof(struct ieee80211_frame_ack) + IEEE80211_CRC_LEN)
 #define	IEEE80211_MIN_LEN \
 	(sizeof(struct ieee80211_frame_min) + IEEE80211_CRC_LEN)
+
+/* Maximal size of an A-MSDU that can be transported in a HT BA session */
+#define IEEE80211_MAX_MPDU_LEN_HT_BA        4095
+
+/* Maximal size of an A-MSDU */
+#define IEEE80211_MAX_MPDU_LEN_HT_3839        3839
+#define IEEE80211_MAX_MPDU_LEN_HT_7935        7935
+
+#define IEEE80211_MAX_MPDU_LEN_VHT_3895        3895
+#define IEEE80211_MAX_MPDU_LEN_VHT_7991        7991
+#define IEEE80211_MAX_MPDU_LEN_VHT_11454    11454
 
 /*
  * The 802.11 spec says at most 2007 stations may be
@@ -1308,6 +1425,71 @@ struct ieee80211_csa_ie {
  */
 #define    IEEE80211_CSA_COUNT_MIN    2
 #define    IEEE80211_CSA_COUNT_MAX    255
+
+#define    IEEE80211_IS_CHAN_HT(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_HT) != 0)
+#define    IEEE80211_IS_CHAN_HT20(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_HT20) != 0)
+#define    IEEE80211_IS_CHAN_HT40(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_HT40) != 0)
+#define    IEEE80211_IS_CHAN_HT40U(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_HT40U) != 0)
+#define    IEEE80211_IS_CHAN_HT40D(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_HT40D) != 0)
+
+#define    IEEE80211_IS_CHAN_VHT(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT) != 0)
+#define    IEEE80211_IS_CHAN_VHT_2GHZ(_c) \
+    (IEEE80211_IS_CHAN_2GHZ(_c) && \
+     ((_c)->ic_flags & IEEE80211_CHAN_VHT) != 0)
+#define    IEEE80211_IS_CHAN_VHT_5GHZ(_c) \
+    (IEEE80211_IS_CHAN_5GHZ(_c) && \
+     ((_c)->ic_flags & IEEE80211_CHAN_VHT) != 0)
+#define    IEEE80211_IS_CHAN_VHT20(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT20) != 0)
+#define    IEEE80211_IS_CHAN_VHT40(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT40) != 0)
+#define    IEEE80211_IS_CHAN_VHT40U(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT40U) != 0)
+#define    IEEE80211_IS_CHAN_VHT40D(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT40D) != 0)
+#define    IEEE80211_IS_CHAN_VHTA(_c) \
+    (IEEE80211_IS_CHAN_5GHZ(_c) && \
+     ((_c)->ic_flags & IEEE80211_CHAN_VHT) != 0)
+#define    IEEE80211_IS_CHAN_VHTG(_c) \
+    (IEEE80211_IS_CHAN_2GHZ(_c) && \
+     ((_c)->ic_flags & IEEE80211_CHAN_VHT) != 0)
+#define    IEEE80211_IS_CHAN_VHT80(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT80) != 0)
+#define    IEEE80211_IS_CHAN_VHT80_80(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT80_80) != 0)
+#define    IEEE80211_IS_CHAN_VHT160(_c) \
+    (((_c)->ic_flags & IEEE80211_CHAN_VHT160) != 0)
+
+#define    WME_OUI            0xf25000
+#define    WME_OUI_TYPE        0x02
+#define    WME_INFO_OUI_SUBTYPE    0x00
+#define    WME_PARAM_OUI_SUBTYPE    0x01
+#define    WME_VERSION        1
+
+/* WME stream classes */
+#define    WME_AC_BE    0        /* best effort */
+#define    WME_AC_BK    1        /* background */
+#define    WME_AC_VI    2        /* video */
+#define    WME_AC_VO    3        /* voice */
+
+/*
+ * WME/802.11e information element.
+ */
+struct ieee80211_wme_info {
+    uint8_t        wme_id;        /* IEEE80211_ELEMID_VENDOR */
+    uint8_t        wme_len;    /* length in bytes */
+    uint8_t        wme_oui[3];    /* 0x00, 0x50, 0xf2 */
+    uint8_t        wme_type;    /* OUI type */
+    uint8_t        wme_subtype;    /* OUI subtype */
+    uint8_t        wme_version;    /* spec revision */
+    uint8_t        wme_info;    /* QoS info */
+} __packed;
 
 #endif /* _NET80211_IEEE80211_H_ */
 

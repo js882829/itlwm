@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*    $OpenBSD: if_iwmvar.h,v 1.55 2020/04/03 08:32:21 stsp Exp $    */
+/*    $OpenBSD: if_iwmvar.h,v 1.57 2020/10/11 07:05:28 mpi Exp $    */
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -116,10 +116,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ieee80211_var.h"
-#include "ieee80211_amrr.h"
-#include "ieee80211_mira.h"
-#include "ieee80211_radiotap.h"
+#include <net80211/ieee80211_var.h>
+#include <net80211/ieee80211_amrr.h>
+#include <net80211/ieee80211_mira.h>
+#include <net80211/ieee80211_radiotap.h>
 
 #include <IOKit/network/IOMbufMemoryCursor.h>
 #include <IOKit/IODMACommand.h>
@@ -149,14 +149,12 @@ struct iwm_tx_radiotap_header {
     uint8_t        wt_rate;
     uint16_t    wt_chan_freq;
     uint16_t    wt_chan_flags;
-    uint8_t        wt_hwqueue;
 } __packed;
 
 #define IWM_TX_RADIOTAP_PRESENT                        \
     ((1 << IEEE80211_RADIOTAP_FLAGS) |                \
      (1 << IEEE80211_RADIOTAP_RATE) |                \
-     (1 << IEEE80211_RADIOTAP_CHANNEL) |                \
-     (1 << IEEE80211_RADIOTAP_HWQUEUE))
+     (1 << IEEE80211_RADIOTAP_CHANNEL))
 
 #define IWM_UCODE_SECT_MAX 16
 #define IWM_FWDMASEGSZ (192*1024)
@@ -284,6 +282,16 @@ struct iwm_tx_data {
     struct iwm_node *in;
     int txmcs;
     int txrate;
+    int totlen;
+    int retries;
+    int txfail;
+    int data_type;
+    
+    /* A-MPDU subframes */
+    int ampdu_id;
+    int ampdu_txmcs;
+    int ampdu_nframes;
+    int ampdu_size;
 };
 
 struct iwm_tx_ring {
@@ -295,6 +303,7 @@ struct iwm_tx_ring {
     int            qid;
     int            queued;
     int            cur;
+    int            read;
     int            tail;
 };
 
@@ -387,6 +396,10 @@ struct iwm_bf_data {
     int last_cqm_event;
 };
 
+struct iwm_tx_ba {
+   struct iwm_node *    wn;
+};
+
 struct iwm_softc {
 	struct device sc_dev;
 	struct ieee80211com sc_ic;
@@ -410,6 +423,7 @@ struct iwm_softc {
 	int			ba_tid;
 	uint16_t		ba_ssn;
     uint16_t        ba_winsize;
+    int         ba_tx;
 
 	/* Task for HT protection updates. */
 	struct task		htprot_task;
@@ -432,6 +446,8 @@ struct iwm_softc {
 	struct iwm_rx_ring rxq;
 	int qfullmsk;
     int cmdqid;
+    
+    uint8_t sc_mgmt_last_antenna_idx;
 
 	int sc_sf_state;
 
@@ -468,6 +484,7 @@ struct iwm_softc {
 	uint8_t sc_ucode_api[howmany(IWM_NUM_UCODE_TLV_API, NBBY)];
     uint8_t sc_enabled_capa[howmany(IWM_NUM_UCODE_TLV_CAPA, NBBY)];
 	char sc_fw_mcc[3];
+    uint16_t sc_fw_mcc_int;
 
 	int sc_intmask;
 	int sc_flags;
@@ -522,6 +539,11 @@ struct iwm_softc {
 
 	struct iwm_rx_phy_info sc_last_phy_info;
 	int sc_ampdu_ref;
+    
+    int first_agg_txq;
+    int agg_queue_mask;
+    int agg_tid_disable;
+    struct iwm_tx_ba sc_tx_ba[IEEE80211_NUM_TID];
 
 	uint32_t sc_time_event_uid;
 
@@ -576,6 +598,7 @@ struct iwm_node {
     int chosen_txrate;
     struct ieee80211_mira_node in_mn;
     int chosen_txmcs;
+    uint32_t next_ampdu_id;
 };
 #define IWM_STATION_ID 0
 #define IWM_AUX_STA_ID 1

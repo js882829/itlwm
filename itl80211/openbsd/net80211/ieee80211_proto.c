@@ -496,15 +496,26 @@ ieee80211_setkeysdone(struct ieee80211com *ic)
 
 	/* install GTK */
 	kid = (ic->ic_def_txkey == 1) ? 2 : 1;
-	if ((*ic->ic_set_key)(ic, ic->ic_bss, &ic->ic_nw_keys[kid]) == 0)
-		ic->ic_def_txkey = kid;
+    switch ((*ic->ic_set_key)(ic, ic->ic_bss, &ic->ic_nw_keys[kid])) {
+        case 0:
+        case EBUSY:
+            ic->ic_def_txkey = kid;
+            break;
+        default:
+            break;
+    }
 
 	if (ic->ic_caps & IEEE80211_C_MFP) {
 		/* install IGTK */
 		kid = (ic->ic_igtk_kid == 4) ? 5 : 4;
-		if ((*ic->ic_set_key)(ic, ic->ic_bss,
-		    &ic->ic_nw_keys[kid]) == 0)
-			ic->ic_igtk_kid = kid;
+        switch ((*ic->ic_set_key)(ic, ic->ic_bss, &ic->ic_nw_keys[kid])) {
+            case 0:
+            case EBUSY:
+                ic->ic_igtk_kid = kid;
+                break;
+            default:
+                break;
+        }
 	}
 }
 
@@ -569,9 +580,11 @@ void
 ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
 	int i;
+    int ht_param;
 
 	ni->ni_flags &= ~(IEEE80211_NODE_HT | IEEE80211_NODE_HT_SGI20 |
 	    IEEE80211_NODE_HT_SGI40);
+    ni->ni_chw = 20;
 
 	/* Check if we support HT. */
 	if ((ic->ic_modecaps & (1 << IEEE80211_MODE_11N)) == 0)
@@ -618,8 +631,23 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 	}
 
 	ni->ni_flags |= IEEE80211_NODE_HT;
-
-	/* Flags IEEE8021_NODE_HT_SGI20/40 are set by drivers if supported. */
+    
+    if (ieee80211_node_supports_ht_sgi20(ni)) {
+        ni->ni_flags |= IEEE80211_NODE_HT_SGI20;
+    }
+    
+    if (IEEE80211_IS_CHAN_HT40(ni->ni_chan) && (ic->ic_htcaps & IEEE80211_HTCAP_CBW20_40)) {
+        ht_param = ni->ni_htop0 & IEEE80211_HTOP0_SCO_MASK;
+        if ((ht_param == IEEE80211_HTOP0_SCO_SCA && IEEE80211_IS_CHAN_HT40U(ni->ni_chan)) ||
+            (ht_param == IEEE80211_HTOP0_SCO_SCB && IEEE80211_IS_CHAN_HT40D(ni->ni_chan)))  {
+            ni->ni_chw = 40;
+            
+            if (ieee80211_node_supports_ht_sgi40(ni)) {
+                ni->ni_flags |= IEEE80211_NODE_HT_SGI40;
+            }
+        }
+    }
+    XYLog("%s %d chan_width=%d\n", __FUNCTION__, __LINE__, ni->ni_chw);
 }
 
 void
@@ -701,22 +729,19 @@ ieee80211_addba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 	ba->ba_params =
 	    (ba->ba_winsize << IEEE80211_ADDBA_BUFSZ_SHIFT) |
 	    (tid << IEEE80211_ADDBA_TID_SHIFT);
-#if 0
-	/*
-	 * XXX A-MSDUs inside A-MPDUs expose a problem with bad TCP connection
-	 * sharing behaviour. One connection eats all available bandwidth
-	 * while others stall. Leave this disabled for now to give packets
-	 * from disparate connections better chances of interleaving.
-	 */
-	ba->ba_params |= IEEE80211_ADDBA_AMSDU;
-#endif
+    if (ic->ic_caps & IEEE80211_C_AMSDU_IN_AMPDU) {
+        ba->ba_params |= IEEE80211_ADDBA_AMSDU;
+    }
 	if ((ic->ic_htcaps & IEEE80211_HTCAP_DELAYEDBA) == 0)
 		/* immediate BA */
 		ba->ba_params |= IEEE80211_ADDBA_BA_POLICY;
 
-	timeout_add_sec(&ba->ba_to, 1);	/* dot11ADDBAResponseTimeout */
-	IEEE80211_SEND_ACTION(ic, ni, IEEE80211_CATEG_BA,
-	    IEEE80211_ACTION_ADDBA_REQ, tid);
+    /* we are waiting BA response */
+    if ((ic->ic_caps & IEEE80211_C_TX_AMPDU_SETUP_IN_HW) == 0) {
+        timeout_add_sec(&ba->ba_to, 1);	/* dot11ADDBAResponseTimeout */
+        IEEE80211_SEND_ACTION(ic, ni, IEEE80211_CATEG_BA,
+                              IEEE80211_ACTION_ADDBA_REQ, tid);
+    }
 	return 0;
 }
 
@@ -964,8 +989,8 @@ ieee80211_stop_ampdu_tx(struct ieee80211com *ic, struct ieee80211_node *ni,
 		struct ieee80211_tx_ba *ba = &ni->ni_tx_ba[tid];
 		if (ba->ba_state != IEEE80211_BA_AGREED)
 			continue;
-		ieee80211_delba_request(ic, ni,
-		    mgt == -1 ? 0 : IEEE80211_REASON_AUTH_LEAVE, 1, tid);
+        ieee80211_delba_request(ic, ni,
+                                ((ic->ic_caps & IEEE80211_C_TX_AMPDU_SETUP_IN_HW) || mgt == -1) ? 0 : IEEE80211_REASON_AUTH_LEAVE, 1, tid);
 	}
 }
 

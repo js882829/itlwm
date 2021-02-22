@@ -90,6 +90,8 @@ enable(IONetworkInterface *netif)
 IOReturn ItlIwm::
 disable(IONetworkInterface *netif)
 {
+    struct _ifnet *ifp = &com.sc_ic.ic_ac.ac_if;
+    ifp->if_flags &= ~IFF_UP;
     iwm_activate(&com, DVACT_QUIESCE);
     return kIOReturnSuccess;
 }
@@ -128,6 +130,24 @@ const char *ItlIwm::
 getFirmwareName()
 {
     return com.sc_fwname;
+}
+
+UInt32 ItlIwm::
+supportedFeatures()
+{
+    return 0;
+}
+
+const char *ItlIwm::
+getFirmwareCountryCode()
+{
+    return com.sc_fw_mcc;
+}
+
+uint32_t ItlIwm::
+getTxQueueSize()
+{
+    return IWM_TX_RING_COUNT;
 }
 
 int16_t ItlIwm::

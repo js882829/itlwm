@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*    $OpenBSD: if_iwm.c,v 1.313 2020/07/10 13:22:20 patrick Exp $    */
+/*    $OpenBSD: if_iwm.c,v 1.316 2020/12/07 20:09:24 tobhe Exp $    */
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -141,6 +141,15 @@
 #define DEVNAME(_s)    ("itlwm")
 #define IWM_DEBUG
 
+#ifdef IWM_DEBUG
+#define DPRINTF(x)    do { if (iwm_debug > 0) XYLog x; } while (0)
+#define DPRINTFN(n, x)    do { if (iwm_debug >= (n)) XYLog x; } while (0)
+extern int iwm_debug;
+#else
+#define DPRINTF(x)    do { ; } while (0)
+#define DPRINTFN(n, x)    do { ; } while (0)
+#endif
+
 #define M_DEVBUF 2
 #define M_WAIT 3
 #define DELAY IODelay
@@ -172,6 +181,8 @@ const uint8_t iwm_nvm_channels_8000[] = {
 };
 
 #define IWM_NUM_2GHZ_CHANNELS    14
+#define IWM_FIRST_2GHZ_HT_MINUS        5
+#define IWM_LAST_2GHZ_HT_PLUS        9
 
 const struct iwm_rate {
     uint16_t rate;

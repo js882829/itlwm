@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*	$OpenBSD: ieee80211_node.h,v 1.83 2019/09/02 12:54:21 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_node.h,v 1.87 2020/07/21 08:38:59 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.h,v 1.9 2004/04/30 22:57:32 dyoung Exp $	*/
 
 /*-
@@ -76,7 +76,15 @@ extern const struct ieee80211_rateset ieee80211_std_rateset_11g;
 #define IEEE80211_HT_RATESET_MIMO3_SGI	5
 #define IEEE80211_HT_RATESET_MIMO4	6
 #define IEEE80211_HT_RATESET_MIMO4_SGI	7
-#define IEEE80211_HT_NUM_RATESETS	8
+#define IEEE80211_HT_RATESET_CBW40_SISO    8
+#define IEEE80211_HT_RATESET_CBW40_SISO_SGI    9
+#define IEEE80211_HT_RATESET_CBW40_MIMO2    10
+#define IEEE80211_HT_RATESET_CBW40_MIMO2_SGI    11
+#define IEEE80211_HT_RATESET_CBW40_MIMO3    12
+#define IEEE80211_HT_RATESET_CBW40_MIMO3_SGI    13
+#define IEEE80211_HT_RATESET_CBW40_MIMO4    14
+#define IEEE80211_HT_RATESET_CBW40_MIMO4_SGI    15
+#define IEEE80211_HT_NUM_RATESETS    16
 
 /* Maximum number of rates in a HT rateset. */
 #define IEEE80211_HT_RATESET_MAX_NRATES	8
@@ -243,6 +251,13 @@ struct ieee80211_rx_ba {
 	u_int16_t		ba_head;
 	CTimeout*		ba_gap_to;
 #define IEEE80211_BA_GAP_TIMEOUT	300 /* msec */
+
+	/*
+	 * Counter for frames forced to wait in the reordering buffer
+	 * due to a leading gap caused by one or more missing frames.
+	 */
+	int			ba_gapwait;
+
 	/* Counter for consecutive frames which missed the BA window. */
 	int			ba_winmiss;
 	/* Sequence number of previous frame which missed the BA window. */
@@ -342,22 +357,18 @@ struct ieee80211_node {
 	uint8_t			ni_rxmcs[howmany(80,NBBY)];
 	uint16_t		ni_max_rxrate;	/* in Mb/s, 0 <= rate <= 1023 */
 	uint8_t			ni_tx_mcs_set;
-	uint16_t		ni_htxcaps;
+	uint16_t		ni_htxcaps;// extended_ht_cap_info
 	uint32_t		ni_txbfcaps;
-	uint8_t			ni_aselcaps;
+	uint8_t			ni_aselcaps;// antenna_selection_info
 
 	/* HT operation */
 	uint8_t			ni_primary_chan; /* XXX corresponds to ni_chan */
-	uint8_t			ni_htop0;
-	uint16_t		ni_htop1;
-	uint16_t		ni_htop2;
+	uint8_t			ni_htop0;// ht_param
+	uint16_t		ni_htop1;// operation_mode
+	uint16_t		ni_htop2;// stbc_param
 	uint8_t			ni_basic_mcs[howmany(128,NBBY)];
-    
-    ///added
-    uint8_t            ni_htparam;    /* HT params */
-    uint8_t            ni_htctlchan;    /* HT control channel */
+
     uint8_t            ni_ht2ndchan;    /* HT 2nd channel */
-    uint8_t            ni_htopmode;    /* HT operating mode */
     uint8_t            ni_chw;        /* negotiated channel width */
     
     /* VHT state */
@@ -370,7 +381,6 @@ struct ieee80211_node {
     uint8_t            ni_vht_chanwidth;    /* IEEE80211_VHT_CHANWIDTH_ */
     uint8_t            ni_vht_pad1;
     uint32_t        ni_vht_spare[8];
-    ///end
 
 	/* Timeout handlers which trigger Tx Block Ack negotiation. */
 	CTimeout*		ni_addba_req_to[IEEE80211_NUM_TID];

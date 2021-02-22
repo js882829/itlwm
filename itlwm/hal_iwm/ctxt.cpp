@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*    $OpenBSD: if_iwm.c,v 1.313 2020/07/10 13:22:20 patrick Exp $    */
+/*    $OpenBSD: if_iwm.c,v 1.316 2020/12/07 20:09:24 tobhe Exp $    */
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -133,6 +133,44 @@ iwm_phy_ctxt_cmd_hdr(struct iwm_softc *sc, struct iwm_phy_ctxt *ctxt,
     cmd->apply_time = htole32(apply_time);
 }
 
+static uint8_t
+iwm_get_channel_width(struct ieee80211com *ic, struct ieee80211_channel *c)
+{
+    uint8_t ret = IWM_PHY_VHT_CHANNEL_MODE20;
+    if (ic->ic_bss == NULL || ic->ic_state < IEEE80211_S_ASSOC) {
+        return ret;
+    }
+    switch (ic->ic_bss->ni_chw) {
+    case 0:
+    case 20:
+        return IWM_PHY_VHT_CHANNEL_MODE20;
+    case 40:
+        return IWM_PHY_VHT_CHANNEL_MODE40;
+    case 80:
+        return IWM_PHY_VHT_CHANNEL_MODE80;
+    case 160:
+        return IWM_PHY_VHT_CHANNEL_MODE160;
+    default:
+        return ret;
+    }
+}
+
+static uint8_t
+iwm_get_ctrl_pos(struct ieee80211com *ic, struct ieee80211_channel *c) {
+    uint8_t ret = IWM_PHY_VHT_CTRL_POS_1_BELOW;
+    if (ic->ic_bss == NULL || ic->ic_state < IEEE80211_S_ASSOC) {
+        return ret;
+    }
+    if (ic->ic_bss->ni_chw == 40) {
+        if ((ic->ic_bss->ni_htop0 & IEEE80211_HTOP0_SCO_MASK) == IEEE80211_HTOP0_SCO_SCA) {
+            return IWM_PHY_VHT_CTRL_POS_1_BELOW;
+        } else {
+            return IWM_PHY_VHT_CTRL_POS_1_ABOVE;
+        }
+    }
+    return ret;
+}
+
 void ItlIwm::
 iwm_phy_ctxt_cmd_data(struct iwm_softc *sc, struct iwm_phy_context_cmd *cmd,
     struct ieee80211_channel *chan, uint8_t chains_static,
@@ -144,8 +182,8 @@ iwm_phy_ctxt_cmd_data(struct iwm_softc *sc, struct iwm_phy_context_cmd *cmd,
     cmd->ci.band = IEEE80211_IS_CHAN_2GHZ(chan) ?
         IWM_PHY_BAND_24 : IWM_PHY_BAND_5;
     cmd->ci.channel = ieee80211_chan2ieee(ic, chan);
-    cmd->ci.width = IWM_PHY_VHT_CHANNEL_MODE20;
-    cmd->ci.ctrl_pos = IWM_PHY_VHT_CTRL_POS_1_BELOW;
+    cmd->ci.width = iwm_get_channel_width(ic, chan);
+    cmd->ci.ctrl_pos = iwm_get_ctrl_pos(ic, chan);
 
     /* Set rx the chains */
     idle_cnt = chains_static;

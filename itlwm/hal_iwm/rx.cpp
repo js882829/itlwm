@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*    $OpenBSD: if_iwm.c,v 1.313 2020/07/10 13:22:20 patrick Exp $    */
+/*    $OpenBSD: if_iwm.c,v 1.316 2020/12/07 20:09:24 tobhe Exp $    */
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -541,7 +541,6 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data, struct mbuf_list *ml)
     uint32_t offset = 0, nextoff = 0, nmpdu = 0, len;
     mbuf_t m0, m = NULL;
     const size_t minsz = sizeof(pkt->len_n_flags) + sizeof(pkt->hdr);
-    size_t remain = IWM_RBUF_SIZE;
     int qid, idx, code, handled = 1;
     bool replaced = false;
     
@@ -606,7 +605,7 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data, struct mbuf_list *ml)
                 break;
                 
             case IWM_REPLY_RX_MPDU_CMD: {
-                size_t maxlen = remain - minsz;
+                size_t maxlen = IWM_RBUF_SIZE - offset - minsz;
                 nextoff = offset +
                 roundup(len, IWM_FH_RSCSR_FRAME_ALIGN);
                 nextpkt = (struct iwm_rx_packet *)
@@ -646,15 +645,14 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data, struct mbuf_list *ml)
                                     maxlen, ml);
                 }
                 
-                if (offset + minsz < remain)
-                    remain -= offset;
-                else
-                    remain = minsz;
                 break;
             }
                 
             case IWM_TX_CMD:
                 iwm_rx_tx_cmd(sc, pkt, data);
+                break;
+            case IWM_BA_NOTIF:
+                iwm_rx_tx_ba_notif(sc, pkt, data);
                 break;
                 
             case IWM_MISSED_BEACONS_NOTIFICATION:
@@ -668,7 +666,9 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data, struct mbuf_list *ml)
                 struct iwm_alive_resp_v1 *resp1;
                 struct iwm_alive_resp_v2 *resp2;
                 struct iwm_alive_resp_v3 *resp3;
-                
+
+//                XYLog("%s: firmware alive, size=%d\n", __FUNCTION__, iwm_rx_packet_payload_len(pkt));
+
                 if (iwm_rx_packet_payload_len(pkt) == sizeof(*resp1)) {
                     SYNC_RESP_STRUCT(resp1, pkt, struct iwm_alive_resp_v1 *);
                     sc->sc_uc.uc_error_event_table
@@ -741,6 +741,12 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data, struct mbuf_list *ml)
                 sc->sc_fw_mcc[0] = (notif->mcc & 0xff00) >> 8;
                 sc->sc_fw_mcc[1] = notif->mcc & 0xff;
                 sc->sc_fw_mcc[2] = '\0';
+
+                if (sc->sc_fw_mcc_int != notif->mcc && sc->sc_ic.ic_event_handler) {
+                    (*sc->sc_ic.ic_event_handler)(&sc->sc_ic, IEEE80211_EVT_COUNTRY_CODE_UPDATE, NULL);
+                }
+
+                sc->sc_fw_mcc_int = notif->mcc;
             }
                 
             case IWM_DTS_MEASUREMENT_NOTIFICATION:

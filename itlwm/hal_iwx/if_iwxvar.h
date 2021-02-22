@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*    $OpenBSD: if_iwxvar.h,v 1.11 2020/08/01 16:14:05 stsp Exp $    */
+/*    $OpenBSD: if_iwxvar.h,v 1.13 2020/10/11 07:05:28 mpi Exp $    */
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -103,10 +103,10 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include "ieee80211_var.h"
-#include "ieee80211_amrr.h"
-#include "ieee80211_mira.h"
-#include "ieee80211_radiotap.h"
+#include <net80211/ieee80211_var.h>
+#include <net80211/ieee80211_amrr.h>
+#include <net80211/ieee80211_mira.h>
+#include <net80211/ieee80211_radiotap.h>
 
 #include <IOKit/network/IOMbufMemoryCursor.h>
 #include <IOKit/IODMACommand.h>
@@ -136,14 +136,12 @@ struct iwx_tx_radiotap_header {
 	uint8_t		wt_rate;
 	uint16_t	wt_chan_freq;
 	uint16_t	wt_chan_flags;
-	uint8_t		wt_hwqueue;
 } __packed;
 
 #define IWX_TX_RADIOTAP_PRESENT						\
 	((1 << IEEE80211_RADIOTAP_FLAGS) |				\
 	 (1 << IEEE80211_RADIOTAP_RATE) |				\
-	 (1 << IEEE80211_RADIOTAP_CHANNEL) |				\
-	 (1 << IEEE80211_RADIOTAP_HWQUEUE))
+	 (1 << IEEE80211_RADIOTAP_CHANNEL))
 
 #define IWX_UCODE_SECT_MAX 42
 #define IWX_FWDMASEGSZ (192*1024)
@@ -259,6 +257,7 @@ struct iwx_tx_data {
 	bus_addr_t	cmd_paddr;
 	mbuf_t m;
 	struct iwx_node *in;
+    uint8_t type;
 };
 
 struct iwx_tx_ring {
@@ -371,6 +370,17 @@ struct iwx_self_init_dram {
 	int paging_cnt;
 };
 
+
+#define IWX_MAX_TID_COUNT 8
+#define IWX_INVALID_QUEUE 0xFFFF
+
+struct iwx_tid_data {
+    uint16_t seq_number;
+    uint16_t next_reclaimed;
+    uint16_t qid;
+    uint16_t ssn;
+};
+
 #define    INFSLP    UINT64_MAX
 #ifdef DELAY
 #undef DELAY
@@ -406,8 +416,11 @@ struct iwx_softc {
 	struct task	ba_task;
 	int			ba_start;
 	int			ba_tid;
-	uint16_t		ba_ssn;
-	uint16_t		ba_winsize;
+    int         ba_tx;
+	uint16_t    ba_ssn;
+	uint16_t	ba_winsize;
+    
+    struct iwx_tid_data sc_tid_data[IWX_MAX_TID_COUNT + 1];//per tid data + mgmt. Look at %iwx_tid_data.
 
 	/* Task for HT protection updates. */
 	struct task	htprot_task;
@@ -426,7 +439,7 @@ struct iwx_softc {
 	uint32_t			sched_base;
 
 	/* TX/RX rings. */
-	struct iwx_tx_ring txq[IWX_MAX_QUEUES];
+	struct iwx_tx_ring txq[IWX_MAX_TVQM_QUEUES];
 	struct iwx_rx_ring rxq;
 	int qfullmsk;
 
@@ -469,6 +482,8 @@ struct iwx_softc {
 #define IWX_MAX_FW_CMD_VERSIONS	64
 	struct iwx_fw_cmd_version cmd_versions[IWX_MAX_FW_CMD_VERSIONS];
 	int n_cmd_versions;
+    char sc_fw_mcc[3];
+    uint16_t sc_fw_mcc_int;
 
 	int sc_intmask;
 	int sc_flags;
@@ -500,6 +515,9 @@ struct iwx_softc {
 	int sc_scan_last_antenna;
 
 	int sc_fixed_ridx;
+    
+    uint8_t sc_tx_ant; /* for fixed mcs/rate using */
+    uint8_t sc_mgmt_last_antenna_idx; /* for MGMT frames using*/
 
 	int sc_staid;
 	int sc_nodecolor;

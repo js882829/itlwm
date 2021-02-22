@@ -228,8 +228,8 @@ static void array_sprintf(char *output, uint8_t output_size, const uint8_t *arra
 
 #define IEEE80211_RSSI_THRES_2GHZ		(-60)	/* in dBm */
 #define IEEE80211_RSSI_THRES_5GHZ		(-70)	/* in dBm */
-#define IEEE80211_RSSI_THRES_RATIO_2GHZ		60	/* in percent */
-#define IEEE80211_RSSI_THRES_RATIO_5GHZ		50	/* in percent */
+#define IEEE80211_RSSI_THRES_RATIO_2GHZ		50	/* in percent */
+#define IEEE80211_RSSI_THRES_RATIO_5GHZ		40	/* in percent */
 
 #define IEEE80211_BGSCAN_FAIL_MAX		360	/* units of 500 msec */
 
@@ -288,7 +288,7 @@ enum ieee80211_protmode {
  */
 struct ieee80211_channel {
 	u_int16_t	ic_freq;	/* setting in MHz */
-	u_int16_t	ic_flags;	/* see below */
+	u_int32_t	ic_flags;	/* see below */
 };
 
 /*
@@ -301,11 +301,34 @@ struct ieee80211_channel {
 #define IEEE80211_CHAN_PASSIVE	0x0200	/* Only passive scan allowed */
 #define IEEE80211_CHAN_DYN	0x0400	/* Dynamic CCK-OFDM channel */
 #define IEEE80211_CHAN_XR	0x1000	/* Extended range OFDM channel */
-#define IEEE80211_CHAN_HT	0x2000	/* 11n/HT channel */
-#define IEEE80211_CHAN_VHT	0x4000	/* 11ac/VHT channel */
 
-#define IEEE80211_CHAN_6GHZ 0x0300
-#define IEEE80211_CHAN_60GHZ 0x0500
+#define IEEE80211_CHAN_HT20    0x00010000 /* HT 20 channel */
+#define IEEE80211_CHAN_HT40U    0x00020000 /* HT 40 channel w/ ext above */
+#define IEEE80211_CHAN_HT40D    0x00040000 /* HT 40 channel w/ ext below */
+#define IEEE80211_CHAN_DFS    0x00080000 /* DFS required */
+#define IEEE80211_CHAN_4MSXMIT    0x00100000 /* 4ms limit on frame length */
+#define IEEE80211_CHAN_NOADHOC    0x00200000 /* adhoc mode not allowed */
+#define IEEE80211_CHAN_NOHOSTAP    0x00400000 /* hostap mode not allowed */
+#define IEEE80211_CHAN_11D    0x00800000 /* 802.11d required */
+#define IEEE80211_CHAN_VHT20    0x01000000 /* VHT20 channel */
+#define IEEE80211_CHAN_VHT40U    0x02000000 /* VHT40 channel, ext above */
+#define IEEE80211_CHAN_VHT40D    0x04000000 /* VHT40 channel, ext below */
+#define IEEE80211_CHAN_VHT80    0x08000000 /* VHT80 channel */
+#define IEEE80211_CHAN_VHT160    0x10000000 /* VHT160 channel */
+#define IEEE80211_CHAN_VHT80_80    0x20000000 /* VHT80+80 channel */
+
+#define IEEE80211_CHAN_HT40    (IEEE80211_CHAN_HT40U | IEEE80211_CHAN_HT40D)
+#define IEEE80211_CHAN_HT    (IEEE80211_CHAN_HT20 | IEEE80211_CHAN_HT40)
+
+#define IEEE80211_CHAN_VHT40    (IEEE80211_CHAN_VHT40U | IEEE80211_CHAN_VHT40D)
+#define IEEE80211_CHAN_VHT    (IEEE80211_CHAN_VHT20 | IEEE80211_CHAN_VHT40 \
+                | IEEE80211_CHAN_VHT80 | IEEE80211_CHAN_VHT80_80 \
+                | IEEE80211_CHAN_VHT160)
+
+#define IEEE80211_CHAN_ALL  \
+    (IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_5GHZ | \
+    IEEE80211_CHAN_CCK | IEEE80211_CHAN_OFDM | IEEE80211_CHAN_PASSIVE | IEEE80211_CHAN_DYN | IEEE80211_CHAN_XR | \
+    IEEE80211_CHAN_HT | IEEE80211_CHAN_VHT)
 
 /*
  * Useful combinations of channel characteristics.
@@ -328,9 +351,9 @@ struct ieee80211_channel {
 #define	IEEE80211_IS_CHAN_G(_c) \
 	(((_c)->ic_flags & IEEE80211_CHAN_G) == IEEE80211_CHAN_G)
 #define	IEEE80211_IS_CHAN_N(_c) \
-	(((_c)->ic_flags & IEEE80211_CHAN_HT) == IEEE80211_CHAN_HT)
+	(((_c)->ic_flags & IEEE80211_CHAN_HT) != 0)
 #define	IEEE80211_IS_CHAN_AC(_c) \
-	(((_c)->ic_flags & IEEE80211_CHAN_VHT) == IEEE80211_CHAN_VHT)
+	(((_c)->ic_flags & IEEE80211_CHAN_VHT) != 0)
 
 #define	IEEE80211_IS_CHAN_2GHZ(_c) \
 	(((_c)->ic_flags & IEEE80211_CHAN_2GHZ) != 0)
@@ -421,6 +444,7 @@ struct ieee80211com {
 	int			(*ic_bgscan_start)(struct ieee80211com *);
     /* The channel width has changed (20<->2040) */
     void            (*ic_update_chw)(struct ieee80211com *);
+    void            (*ic_event_handler)(struct ieee80211com *, int, void *);
 	CTimeout*		ic_bgscan_timeout;
 	uint32_t		ic_bgscan_fail;
 	u_int8_t		ic_myaddr[IEEE80211_ADDR_LEN];
@@ -482,6 +506,8 @@ struct ieee80211com {
 #ifdef AIRPORT
 	u_int8_t		ic_rsn_ie_override[257];
 #endif
+    u_int16_t       ic_deauth_reason;
+    u_int16_t       ic_assoc_status;
 	struct ieee80211_key	ic_nw_keys[IEEE80211_GROUP_NKID];
 	int			ic_def_txkey;	/* group data key index */
 #define ic_wep_txkey	ic_def_txkey
@@ -522,6 +548,7 @@ struct ieee80211com {
 
 	u_int32_t		ic_txbfcaps;
 	u_int16_t		ic_htcaps;
+    uint32_t        ic_vhtcaps;
 	u_int8_t		ic_ampdu_params;
 	u_int8_t		ic_sup_mcs[howmany(80, NBBY)];
 	u_int16_t		ic_max_rxrate;	/* in Mb/s, 0 <= rate <= 1023 */
@@ -618,12 +645,19 @@ struct ieee80211_ess {
 #define IEEE80211_C_RAWCTL	0x00004000	/* CAPABILITY: raw ctl */
 #define IEEE80211_C_SCANALLBAND	0x00008000	/* CAPABILITY: scan all bands */
 #define IEEE80211_C_TX_AMPDU	0x00010000	/* CAPABILITY: send A-MPDU */
+#define IEEE80211_C_AMSDU_IN_AMPDU 0x00020000 /* CAPABILITY: Rx AMSDU inside AMPDU */
+#define IEEE80211_C_TX_AMPDU_SETUP_IN_HW 0x00040000 /* CAPABILITY: BA negotiation in HW */
 
 /* flags for ieee80211_fix_rate() */
 #define	IEEE80211_F_DOSORT	0x00000001	/* sort rate list */
 #define	IEEE80211_F_DOFRATE	0x00000002	/* use fixed rate */
 #define	IEEE80211_F_DONEGO	0x00000004	/* calc negotiated rate */
 #define	IEEE80211_F_DODEL	0x00000008	/* delete ignore rate */
+
+#define IEEE80211_EVT_STA_ASSOC_DONE            1
+#define IEEE80211_EVT_STA_DEAUTH                2
+#define IEEE80211_EVT_COUNTRY_CODE_UPDATE       3
+#define IEEE80211_EVT_SCAN_DONE                 4
 
 void	ieee80211_ifattach(struct _ifnet *);
 void	ieee80211_ifdetach(struct _ifnet *);

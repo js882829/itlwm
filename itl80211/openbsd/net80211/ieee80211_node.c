@@ -1224,7 +1224,7 @@ ieee80211_node_switch_bss(struct ieee80211com *ic, struct ieee80211_node *ni)
 void
 ieee80211_node_join_bss(struct ieee80211com *ic, struct ieee80211_node *selbs, int force_reauth)
 {
-    XYLog("%s\n", __FUNCTION__);
+    XYLog("%s selbs=%s mac=%s chan=%d rssi=%d protos=%d akms=%d ciphers=%d\n", __FUNCTION__, selbs->ni_essid, ether_sprintf(selbs->ni_bssid), ieee80211_chan2ieee(ic, selbs->ni_chan), selbs->ni_rssi, selbs->ni_rsnprotos, selbs->ni_rsnakms, selbs->ni_rsnciphers);
     enum ieee80211_phymode mode;
     struct ieee80211_node *ni;
     uint32_t assoc_fail = 0;
@@ -1361,6 +1361,12 @@ ieee80211_node_choose_bss(struct ieee80211com *ic, int bgscan,
      * (as long as it meets the minimum RSSI threshold) since the 5Ghz band
      * is usually less saturated.
      */
+    if (selbs5 != NULL) {
+        XYLog("%s 5ghz ssid=%s mac=%s rssi=%d\n", __FUNCTION__, selbs5->ni_essid, ether_sprintf(selbs5->ni_bssid), selbs5->ni_rssi);
+    }
+    if (selbs2 != NULL) {
+        XYLog("%s 2ghz ssid=%s mac=%s rssi=%d\n", __FUNCTION__, selbs2->ni_essid, ether_sprintf(selbs2->ni_bssid), selbs2->ni_rssi);
+    }
     if (selbs5 && selbs5->ni_rssi > min_5ghz_rssi)
         selbs = selbs5;
     else if (selbs5 && selbs2)
@@ -1737,7 +1743,7 @@ ieee80211_setup_node(struct ieee80211com *ic,
 {
     int i, s;
     
-    XYLog("%s %s\n", __FUNCTION__, ether_sprintf((u_int8_t *)macaddr));
+    DPRINTF(("%s %s\n", __FUNCTION__, ether_sprintf((u_int8_t *)macaddr)));
     IEEE80211_ADDR_COPY(ni->ni_macaddr, macaddr);
     ieee80211_node_newstate(ni, IEEE80211_STA_CACHE);
     
@@ -2072,7 +2078,7 @@ void ieee80211_ba_free(struct ieee80211_node *ni)
 void
 ieee80211_free_node(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
-    XYLog("%s\n", __FUNCTION__);
+    DPRINTF(("%s %s %s\n", __FUNCTION__, ni->ni_essid, ether_sprintf(ni->ni_bssid)));
     if (ni == ic->ic_bss)
         panic("freeing bss node");
     
@@ -2125,13 +2131,22 @@ ieee80211_release_node(struct ieee80211com *ic, struct ieee80211_node *ni)
 void
 ieee80211_free_allnodes(struct ieee80211com *ic, int clear_ic_bss)
 {
-    struct ieee80211_node *ni;
+    struct ieee80211_node *ni, *next_ni;
     int s;
     
     DPRINTF(("freeing all nodes\n"));
     s = splnet();
-    while ((ni = RB_MIN(ieee80211_tree, &ic->ic_tree)) != NULL)
+    for (ni = RB_MIN(ieee80211_tree, &ic->ic_tree);
+         ni != NULL; ni = next_ni) {
+        next_ni = RB_NEXT(ieee80211_tree, &ic->ic_tree, ni);
+        if (!clear_ic_bss && ic->ic_bss != NULL) {
+            if (memcmp(ic->ic_bss->ni_bssid, ni->ni_bssid, IEEE80211_ADDR_LEN) == 0
+                && strncmp((const char *)ic->ic_bss->ni_essid, (const char *)ni->ni_essid, IEEE80211_NWID_LEN) == 0) {
+                continue;
+            }
+        }
         ieee80211_free_node(ic, ni);
+    }
     splx(s);
     
     if (clear_ic_bss && ic->ic_bss != NULL)

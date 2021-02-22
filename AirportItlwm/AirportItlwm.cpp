@@ -1,7 +1,21 @@
-/* add your code here */
+/*
+* Copyright (C) 2020  钟先耀
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation; either version 2 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*/
 #include "AirportItlwm.hpp"
 
-#include "sha1.h"
+#include <crypto/sha1.h>
+#include <net80211/ieee80211_priv.h>
+#include <net80211/ieee80211_var.h>
 
 #define super IO80211Controller
 OSDefineMetaClassAndStructors(AirportItlwm, IO80211Controller);
@@ -12,8 +26,10 @@ IOCommandGate *_fCommandGate;
 
 bool AirportItlwm::init(OSDictionary *properties)
 {
-    super::init(properties);
-    return true;
+    bool ret = super::init(properties);
+    awdlSyncEnable = true;
+    power_state = 0;
+    return ret;
 }
 
 #define  PCI_MSI_FLAGS        2    /* Message Control */
@@ -62,14 +78,18 @@ IOService* AirportItlwm::probe(IOService *provider, SInt32 *score)
         isMatch = true;
         fHalService = new ItlIwm;
     }
+    if (!isMatch && ItlIwn::iwn_match(device)) {
+        isMatch = true;
+        fHalService = new ItlIwn;
+    }
     if (isMatch) {
-        device->findPCICapability(PCI_CAP_ID_MSI, &msiCap);
-        if (msiCap) {
-            pciMsiSetEnable(device, msiCap, 0);
-        }
         device->findPCICapability(PCI_CAP_ID_MSIX, &msixCap);
         if (msixCap) {
             pciMsiXClearAndSet(device, msixCap, PCI_MSIX_FLAGS_ENABLE, 0);
+        }
+        device->findPCICapability(PCI_CAP_ID_MSI, &msiCap);
+        if (msiCap) {
+            pciMsiSetEnable(device, msiCap, 1);
         }
         if (!msiCap && !msixCap) {
             XYLog("%s No MSI cap\n", __FUNCTION__);
@@ -98,6 +118,9 @@ bool AirportItlwm::configureInterface(IONetworkInterface *netif) {
     fHalService->get80211Controller()->ic_ac.ac_if.netStat = fpNetStats;
     fHalService->get80211Controller()->ic_ac.ac_if.iface = OSDynamicCast(IOEthernetInterface, netif);
     fpNetStats->collisions = 0;
+#ifdef __PRIVATE_SPI__
+    netif->configureOutputPullModel(fHalService->getDriverInfo()->getTxQueueSize(), 0, 0, IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0);
+#endif
     
     return true;
 }
@@ -108,7 +131,7 @@ IONetworkInterface *AirportItlwm::createInterface()
     if (!netif) {
         return NULL;
     }
-    if (!netif->init(this)) {
+    if (!netif->init(this, fHalService)) {
         netif->release();
         return NULL;
     }
@@ -144,14 +167,25 @@ void AirportItlwm::associateSSID(uint8_t *ssid, uint32_t ssid_len, const struct 
         ic->ic_flags &= ~IEEE80211_F_DESBSSID;
     }
     
-    if (authtype_upper & (APPLE80211_AUTHTYPE_WPA | APPLE80211_AUTHTYPE_WPA_PSK)) {
-        wpa.i_protos |= IEEE80211_WPA_PROTO_WPA1;		
+    if (authtype_upper & (APPLE80211_AUTHTYPE_WPA | APPLE80211_AUTHTYPE_WPA_PSK | APPLE80211_AUTHTYPE_WPA2 | APPLE80211_AUTHTYPE_WPA2_PSK | APPLE80211_AUTHTYPE_SHA256_PSK | APPLE80211_AUTHTYPE_SHA256_8021X)) {
+        XYLog("%s %d\n", __FUNCTION__, __LINE__);
+        wpa.i_protos = IEEE80211_WPA_PROTO_WPA1 | IEEE80211_WPA_PROTO_WPA2;
     }
-    if (authtype_upper & (APPLE80211_AUTHTYPE_WPA2 | APPLE80211_AUTHTYPE_WPA2_PSK)) {
-        wpa.i_protos |= IEEE80211_WPA_PROTO_WPA2;		
+
+    // AUTHTYPE_WPA3_SAE AUTHTYPE_WPA3_FT_SAE
+    // we don't really support WPA3, but we have announced we support WPA3 in card capability function. so we fake it as WPA2 to support some WPA2/WPA3 mix wifi connection.
+    if (authtype_upper == APPLE80211_AUTHTYPE_WPA3_SAE || authtype_upper == APPLE80211_AUTHTYPE_WPA3_FT_SAE) {
+        wpa.i_protos |= IEEE80211_WPA_PROTO_WPA2;
+        authtype_upper |= APPLE80211_AUTHTYPE_WPA2_PSK;// hack
+    }
+    // AUTHTYPE_WPA3_ENTERPRISE AUTHTYPE_WPA3_FT_ENTERPRISE
+    if (authtype_upper == APPLE80211_AUTHTYPE_WPA3_ENTERPRISE || authtype_upper == APPLE80211_AUTHTYPE_WPA3_FT_ENTERPRISE) {
+        wpa.i_protos |= IEEE80211_WPA_PROTO_WPA2;
+        authtype_upper |= APPLE80211_AUTHTYPE_WPA2;// hack
     }
     
     if (authtype_upper & (APPLE80211_AUTHTYPE_WPA_PSK | APPLE80211_AUTHTYPE_WPA2_PSK)) {
+        XYLog("%s %d\n", __FUNCTION__, __LINE__);
         wpa.i_akms |= IEEE80211_WPA_AKM_PSK | IEEE80211_WPA_AKM_SHA256_PSK;
         wpa.i_enabled = 1;
         memcpy(ic->ic_psk, key, sizeof(ic->ic_psk));
@@ -159,6 +193,7 @@ void AirportItlwm::associateSSID(uint8_t *ssid, uint32_t ssid_len, const struct 
         ieee80211_ioctl_setwpaparms(ic, &wpa);
     }
     if (authtype_upper & (APPLE80211_AUTHTYPE_WPA | APPLE80211_AUTHTYPE_WPA2)) {
+        XYLog("%s %d\n", __FUNCTION__, __LINE__);
         wpa.i_akms |= IEEE80211_WPA_AKM_8021X | IEEE80211_WPA_AKM_SHA256_8021X;	
         wpa.i_enabled = 1;
         ieee80211_ioctl_setwpaparms(ic, &wpa);
@@ -171,21 +206,13 @@ void AirportItlwm::associateSSID(uint8_t *ssid, uint32_t ssid_len, const struct 
     
     if (authtype_upper == APPLE80211_AUTHTYPE_NONE && authtype_lower == APPLE80211_AUTHTYPE_OPEN) { // Open or WEP Open System
         if (key_len > 0) {
+            XYLog("%s %d\n", __FUNCTION__, __LINE__);
             nwkey.i_wepon = IEEE80211_NWKEY_WEP;
             nwkey.i_defkid = key_index + 1;
             nwkey.i_key[key_index].i_keylen = (int)key_len;
             nwkey.i_key[key_index].i_keydat = key;
             ieee80211_ioctl_setnwkeys(ic, &nwkey);
         }
-    }
-    
-    ieee80211_del_ess(ic, NULL, 0, 1);
-    struct ieee80211_node *selbs = ieee80211_node_choose_bss(ic, 0, NULL);
-    if (selbs == NULL) {
-        ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
-    } else {
-        ieee80211_node_join_bss(ic, selbs, 1);
-        fHalService->getDriverController()->clearScanningFlags();
     }
 }
 
@@ -221,7 +248,7 @@ void AirportItlwm::setPTK(const u_int8_t *key, size_t key_len) {
             return;
         }
         else {
-            XYLog("set PTK successfully\n");
+            XYLog("setting PTK successfully\n");
         }
         ni->ni_flags &= ~IEEE80211_NODE_RSN_NEW_PTK;
         ni->ni_flags &= ~IEEE80211_NODE_TXRXPROT;
@@ -230,11 +257,6 @@ void AirportItlwm::setPTK(const u_int8_t *key, size_t key_len) {
         XYLog("%s: unexpected pairwise key update received from %s\n",
               ic->ic_if.if_xname, ether_sprintf(ni->ni_macaddr));
 }
-
-#define LE_READ_6(p)                                    \
-((u_int64_t)(p)[5] << 40 | (u_int64_t)(p)[4] << 32 |    \
- (u_int64_t)(p)[3] << 24 | (u_int64_t)(p)[2] << 16 |    \
- (u_int64_t)(p)[1] <<  8 | (u_int64_t)(p)[0])
 
 void AirportItlwm::setGTK(const u_int8_t *gtk, size_t key_len, u_int8_t kid, u_int8_t *rsc) {
     struct ieee80211com *ic = fHalService->get80211Controller();
@@ -251,22 +273,24 @@ void AirportItlwm::setGTK(const u_int8_t *gtk, size_t key_len, u_int8_t kid, u_i
         }
         /* map GTK to 802.11 key */
         k = &ic->ic_nw_keys[kid];
-        memset(k, 0, sizeof(*k));
-        k->k_id = kid;    /* 0-3 */
-        k->k_cipher = ni->ni_rsngroupcipher;
-        k->k_flags = IEEE80211_KEY_GROUP;
-        //if (gtk[6] & (1 << 2))
-        //  k->k_flags |= IEEE80211_KEY_TX;
-        k->k_rsc[0] = LE_READ_6(rsc);
-        k->k_len = keylen;
-        memcpy(k->k_key, gtk, k->k_len);
-        /* install the GTK */
-        if ((*ic->ic_set_key)(ic, ni, k) != 0) {
-            XYLog("setting GTK failed\n");
-            return;
-        }
-        else {
-            XYLog("set PTK successfully\n");
+        if (k->k_cipher == IEEE80211_CIPHER_NONE || k->k_len != keylen || memcmp(k->k_key, gtk, keylen) != 0) {
+            memset(k, 0, sizeof(*k));
+            k->k_id = kid;    /* 0-3 */
+            k->k_cipher = ni->ni_rsngroupcipher;
+            k->k_flags = IEEE80211_KEY_GROUP;
+            //if (gtk[6] & (1 << 2))
+            //  k->k_flags |= IEEE80211_KEY_TX;
+            k->k_rsc[0] = LE_READ_6(rsc);
+            k->k_len = keylen;
+            memcpy(k->k_key, gtk, k->k_len);
+            /* install the GTK */
+            if ((*ic->ic_set_key)(ic, ni, k) != 0) {
+                XYLog("setting GTK failed\n");
+                return;
+            }
+            else {
+                XYLog("setting GTK successfully\n");
+            }
         }
     }
     
@@ -300,7 +324,7 @@ createMediumTables(const IONetworkMedium **primary)
         return false;
     }
     
-    medium = IONetworkMedium::medium(kIOMediumIEEE80211DS11, 11000000);
+    medium = IONetworkMedium::medium(0x80, 11000000);
     IONetworkMedium::addMedium(mediumDict, medium);
     medium->release();
     if (primary) {
@@ -366,6 +390,7 @@ bool AirportItlwm::start(IOService *provider)
         return false;
     }
     fHalService->initWithController(this, _fWorkloop, _fCommandGate);
+    fHalService->get80211Controller()->ic_event_handler = eventHandler;
     if (!fHalService->attach(pciNub)) {
         XYLog("attach fail\n");
         super::stop(pciNub);
@@ -412,10 +437,7 @@ void AirportItlwm::watchdogAction(IOTimerEventSource *timer)
 {
     struct _ifnet *ifp = &fHalService->get80211Controller()->ic_ac.ac_if;
     (*ifp->if_watchdog)(ifp);
-    watchdogTimer->setTimeoutMS(1000);
-//    if (fNetIf != NULL && fHalService->get80211Controller()->ic_state == IEEE80211_S_RUN) {
-//        fNetIf->postMessage(39);
-//    }
+    watchdogTimer->setTimeoutMS(kWatchDogTimerPeriod);
 }
 
 void AirportItlwm::fakeScanDone(OSObject *owner, IOTimerEventSource *sender)
@@ -481,6 +503,7 @@ void AirportItlwm::stop(IOService *provider)
     XYLog("%s\n", __FUNCTION__);
     struct _ifnet *ifp = &fHalService->get80211Controller()->ic_ac.ac_if;
     super::stop(provider);
+    disableAdapter(fNetIf);
     setLinkStatus(kIONetworkLinkValid);
     fHalService->detach(pciNub);
     detachInterface(fNetIf, true);
@@ -489,25 +512,42 @@ void AirportItlwm::stop(IOService *provider)
     releaseAll();
 }
 
-UInt64 currentSpeed;
-UInt32 currentStatus;
-
 bool AirportItlwm::
 setLinkStatus(UInt32 status, const IONetworkMedium * activeMedium, UInt64 speed, OSData * data)
 {
-    if (status == currentStatus && activeMedium == getCurrentMedium() && speed == currentSpeed) {
+    _ifnet *ifq = &fHalService->get80211Controller()->ic_ac.ac_if;
+    if (status == currentStatus) {
         return true;
     }
     bool ret = super::setLinkStatus(status, activeMedium, speed, data);
-    currentSpeed = speed;
     currentStatus = status;
     if (fNetIf) {
         if (status & kIONetworkLinkActive) {
-            fNetIf->setLinkState(kIO80211NetworkLinkUp, 4);
+#ifdef __PRIVATE_SPI__
+            fNetIf->startOutputThread();
+#endif
+            ifq_set_oactive(&ifq->if_snd);
+            fNetIf->setLinkState(kIO80211NetworkLinkUp, 0);
+            fNetIf->setLinkQualityMetric(100);
             fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
+            if (fAWDLInterface) {
+                fAWDLInterface->setLinkState(kIO80211NetworkLinkUp, 0);
+                fAWDLInterface->postMessage(APPLE80211_M_LINK_CHANGED);
+            }
         } else if (!(status & kIONetworkLinkNoNetworkChange)) {
-            fNetIf->setLinkState(kIO80211NetworkLinkDown, 8);
+#ifdef __PRIVATE_SPI__
+            fNetIf->stopOutputThread();
+            fNetIf->flushOutputQueue();
+#endif
+            ifq->if_snd->lockFlush();
+            mq_purge(&fHalService->get80211Controller()->ic_mgtq);
+            ifq_clr_oactive(&ifq->if_snd);
+            fNetIf->setLinkState(kIO80211NetworkLinkDown, fHalService->get80211Controller()->ic_deauth_reason);
             fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
+            if (fAWDLInterface) {
+                fAWDLInterface->setLinkState(kIO80211NetworkLinkDown, fHalService->get80211Controller()->ic_deauth_reason);
+                fAWDLInterface->postMessage(APPLE80211_M_LINK_CHANGED);
+            }
         }
     }
     return ret;
@@ -559,29 +599,45 @@ void AirportItlwm::free()
         syncFrameTemplateLength = 0;
         syncFrameTemplate = NULL;
     }
+    if (roamProfile != NULL) {
+        IOFree(roamProfile, sizeof(struct apple80211_roam_profile_band_data));
+        roamProfile = NULL;
+    }
     super::free();
 }
 
 IOReturn AirportItlwm::enable(IONetworkInterface *netif)
 {
-    XYLog("%s\n", __FUNCTION__);
+    XYLog("%s\n", __PRETTY_FUNCTION__);
     super::enable(netif);
     _fCommandGate->enable();
-    fHalService->enable(netif);
-    watchdogTimer->setTimeoutMS(1000);
-    watchdogTimer->enable();
+    if (power_state) {
+        enableAdapter(netif);
+    }
     return kIOReturnSuccess;
 }
 
 IOReturn AirportItlwm::disable(IONetworkInterface *netif)
 {
-    XYLog("%s\n", __FUNCTION__);
+    XYLog("%s\n", __PRETTY_FUNCTION__);
     super::disable(netif);
-    fHalService->disable(netif);
-    watchdogTimer->cancelTimeout();
-    watchdogTimer->disable();
     setLinkStatus(kIONetworkLinkValid);
     return kIOReturnSuccess;
+}
+
+IOReturn AirportItlwm::enableAdapter(IONetworkInterface *netif)
+{
+    fHalService->enable(netif);
+    watchdogTimer->setTimeoutMS(kWatchDogTimerPeriod);
+    watchdogTimer->enable();
+    return kIOReturnSuccess;
+}
+
+void AirportItlwm::disableAdapter(IONetworkInterface *netif)
+{
+    watchdogTimer->cancelTimeout();
+    watchdogTimer->disable();
+    fHalService->disable(netif);
 }
 
 IOReturn AirportItlwm::getHardwareAddress(IOEthernetAddress *addrP) {
@@ -599,44 +655,63 @@ IOReturn AirportItlwm::getHardwareAddressForInterface(
     return getHardwareAddress(addr);
 }
 
+#ifdef __PRIVATE_SPI__
+IOReturn AirportItlwm::outputStart(IONetworkInterface *interface, IOOptionBits options)
+{
+    _ifnet *ifp = &fHalService->get80211Controller()->ic_ac.ac_if;
+    mbuf_t m = NULL;
+    if (!ifq_is_oactive(&ifp->if_snd)) {
+        return kIOReturnNoResources;
+    }
+    while (kIOReturnSuccess == interface->dequeueOutputPackets(1, &m)) {
+        outputPacket(m, NULL);
+        if (!ifq_is_oactive(&ifp->if_snd)) {
+            return kIOReturnNoResources;
+        }
+    }
+    return kIOReturnSuccess;
+}
+#endif
+
 UInt32 AirportItlwm::outputPacket(mbuf_t m, void *param)
 {
 //    XYLog("%s\n", __FUNCTION__);
+    IOReturn ret = kIOReturnOutputSuccess;
     _ifnet *ifp = &fHalService->get80211Controller()->ic_ac.ac_if;
     
-    if (fHalService->get80211Controller()->ic_state < IEEE80211_S_AUTH || ifp == NULL || ifp->if_snd == NULL) {
-        freePacket(m);
+    if (fHalService->get80211Controller()->ic_state != IEEE80211_S_RUN || ifp->if_snd == NULL) {
+        if (m && mbuf_type(m) != MBUF_TYPE_FREE) {
+            freePacket(m);
+        }
         return kIOReturnOutputDropped;
     }
     if (m == NULL) {
         XYLog("%s m==NULL!!\n", __FUNCTION__);
         ifp->netStat->outputErrors++;
-        return kIOReturnOutputDropped;
+        ret = kIOReturnOutputDropped;
     }
     if (!(mbuf_flags(m) & MBUF_PKTHDR) ){
         XYLog("%s pkthdr is NULL!!\n", __FUNCTION__);
         ifp->netStat->outputErrors++;
         freePacket(m);
-        return kIOReturnOutputDropped;
+        ret = kIOReturnOutputDropped;
     }
     if (mbuf_type(m) == MBUF_TYPE_FREE) {
         XYLog("%s mbuf is FREE!!\n", __FUNCTION__);
         ifp->netStat->outputErrors++;
-        return kIOReturnOutputDropped;
+        ret = kIOReturnOutputDropped;
     }
-    if (ifp->if_snd->lockEnqueue(m)) {
-        (*ifp->if_start)(ifp);
-        return kIOReturnOutputSuccess;
-    } else {
+    if (!ifp->if_snd->lockEnqueue(m)) {
         freePacket(m);
-        return kIOReturnOutputDropped;
+        ret = kIOReturnOutputDropped;
     }
+    (*ifp->if_start)(ifp);
+    return ret;
 }
 
 UInt32 AirportItlwm::getFeatures() const
 {
-    UInt32 features = (kIONetworkFeatureMultiPages);
-    return features;
+    return fHalService->getDriverInfo()->supportedFeatures();
 }
 
 IOReturn AirportItlwm::setPromiscuousMode(IOEnetPromiscuousMode mode) {
@@ -835,12 +910,50 @@ outputRaw80211Packet(IO80211Interface *interface, mbuf_t m)
     return kIOReturnOutputDropped;
 }
 
-int AirportItlwm::
-outputActionFrame(IO80211Interface *interface, mbuf_t m)
+UInt32 AirportItlwm::
+hardwareOutputQueueDepth(IO80211Interface *interface)
 {
-    XYLog("%s len=%d\n", __FUNCTION__, mbuf_len(m));
-    freePacket(m);
-    return kIOReturnOutputDropped;
+    return 0;
+}
+
+SInt32 AirportItlwm::
+performCountryCodeOperation(IO80211Interface *interface, IO80211CountryCodeOp op)
+{
+    return 0;
+}
+
+SInt32 AirportItlwm::
+stopDMA()
+{
+    if (fNetIf) {
+        disable(fNetIf);
+    }
+    return 0;
+}
+
+SInt32 AirportItlwm::
+enableFeature(IO80211FeatureCode code, void *data)
+{
+    if (code == kIO80211Feature80211n) {
+        return 0;
+    }
+    return 102;
+}
+
+int AirportItlwm::
+outputActionFrame(OSObject *object, mbuf_t m)
+{
+    XYLog("%s len=%zu\n", __FUNCTION__, mbuf_len(m));
+    mbuf_freem(m);
+    return 0;
+}
+
+int AirportItlwm::
+bpfOutput80211Radio(OSObject *object, mbuf_t m)
+{
+    XYLog("%s len=%zu\n", __FUNCTION__, mbuf_len(m));
+    mbuf_freem(m);
+    return 0;
 }
 
 SInt32 AirportItlwm::
@@ -849,7 +962,8 @@ enableVirtualInterface(IO80211VirtualInterface *interface)
     XYLog("%s interface=%s role=%d", __FUNCTION__, interface->getBSDName(), interface->getInterfaceRole());
     SInt32 ret = super::enableVirtualInterface(interface);
     if (!ret) {
-//        interface->startOutputQueues();
+        interface->setLinkState(kIO80211NetworkLinkUp, 0);
+        interface->postMessage(APPLE80211_M_LINK_CHANGED);
         return kIOReturnSuccess;
     }
     return ret;
@@ -861,7 +975,8 @@ disableVirtualInterface(IO80211VirtualInterface *interface)
     XYLog("%s interface=%s role=%d", __FUNCTION__, interface->getBSDName(), interface->getInterfaceRole());
     SInt32 ret = super::disableVirtualInterface(interface);
     if (!ret) {
-//        interface->stopOutputQueues();
+        interface->setLinkState(kIO80211NetworkLinkDown, 0);
+        interface->postMessage(APPLE80211_M_LINK_CHANGED);
         return kIOReturnSuccess;
     }
     return ret;
@@ -883,4 +998,40 @@ createVirtualInterface(ether_addr *ether, UInt role)
         }
     }
     return inf;
+}
+
+int AirportItlwm::
+bpfOutputPacket(OSObject *object, UInt dltType, mbuf_t m)
+{
+    XYLog("%s dltType=%d\n", __FUNCTION__, dltType);
+    if (dltType == DLT_IEEE802_11_RADIO || dltType == DLT_IEEE802_11) {
+        return bpfOutput80211Radio(object, m);
+    }
+    if (dltType == DLT_RAW) {
+        return outputActionFrame(object, m);
+    }
+    mbuf_freem(m);
+    return 1;
+}
+
+void AirportItlwm::
+requestPacketTx(void *object, UInt )
+{
+    UInt32 ret;
+    struct TxPacketRequest request;
+    if (object == NULL) {
+        return;
+    }
+    IO80211VirtualInterface *interface = OSDynamicCast(IO80211VirtualInterface, (OSObject *)object);
+    if (interface) {
+        memset(&request, 0, sizeof(request));
+        if (interface->getInterfaceRole() == APPLE80211_VIF_AWDL) {
+//            interface->dequeueTxPackets(&request);
+//
+//            ret = outputPacket(NULL, interface);
+//            if (ret == kIOReturnSuccess) {
+//                interface->reportTransmitStatus(NULL, ret, NULL);
+//            }
+        }
+    }
 }

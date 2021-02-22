@@ -226,6 +226,11 @@ ieee80211_ifattach(struct _ifnet *ifp)
     memcpy(((struct arpcom *)ifp)->ac_enaddr, ic->ic_myaddr,
            ETHER_ADDR_LEN);
     //	ether_ifattach(ifp);
+    if (ifp->if_sadl) {
+        ::free(ifp->if_sadl);
+    }
+    ifp->if_sadl = (struct sockaddr_dl *)::malloc(sizeof(struct sockaddr_dl), 0, 0);
+    memcpy(LLADDR(ifp->if_sadl), ic->ic_myaddr, ETHER_ADDR_LEN);
     
     ifp->if_output = ieee80211_output;
     
@@ -279,6 +284,9 @@ ieee80211_ifdetach(struct _ifnet *ifp)
     if (ifp->if_slowtimo) {
         ifp->if_slowtimo->release();
         ifp->if_slowtimo = NULL;
+    }
+    if (ifp->if_sadl) {
+        ::free(ifp->if_sadl);
     }
     ifp->netStat = NULL;
     ifp->controller = NULL;
@@ -932,6 +940,30 @@ const struct ieee80211_ht_rateset ieee80211_std_ratesets_11n[] = {
     
     /* MCS 24-31, 20MHz channel, SGI */
     { 8, { 58, 116, 173, 231, 347, 462, 520, 578 }, 0xff000000, 24, 31, 1 },
+    
+    /* MCS 0-7, 40MHz channel, no SGI */
+    { 8, { 27, 54, 81, 108, 162, 216, 243, 270 }, 0x000000ff, 0, 7, 0},
+    
+    /* MCS 0-7, 40MHz channel, SGI */
+    { 8, { 30, 60, 90, 120, 180, 240, 270, 300 }, 0x000000ff, 0, 7, 1 },
+    
+    /* MCS 8-15, 40MHz channel, no SGI */
+    { 8, { 54, 108, 162, 216, 324, 432, 486, 540 }, 0x0000ff00, 8, 15, 0 },
+    
+    /* MCS 8-15, 40MHz channel, SGI */
+    { 8, { 60, 120, 180, 240, 360, 480, 540, 600 }, 0x0000ff00, 8, 15, 1 },
+    
+    /* MCS 16-23, 40MHz channel, no SGI */
+    { 8, { 81, 162, 243, 324, 486, 648, 729, 810 }, 0x00ff0000, 16, 23, 0 },
+    
+    /* MCS 16-23, 40MHz channel, SGI */
+    { 8, { 90, 180, 270, 360, 540, 720, 810, 900 }, 0x00ff0000, 16, 23, 1 },
+    
+    /* MCS 24-31, 40MHz channel, no SGI */
+    { 8, { 108, 216, 324, 432, 648, 864, 972, 1080 }, 0xff000000, 24, 31, 0 },
+    
+    /* MCS 24-31, 40MHz channel, SGI */
+    { 8, { 120, 240, 360, 480, 720, 960, 1080, 1200 }, 0xff000000, 24, 31, 1 },
 };
 
 const struct ieee80211_vht_rateset ieee80211_std_ratesets_11ac[] = {
@@ -1113,7 +1145,7 @@ ieee80211_setmode(struct ieee80211com *ic, enum ieee80211_phymode mode)
         if (mode == IEEE80211_MODE_AUTO) {
             if (c->ic_flags != 0)
                 setbit(ic->ic_chan_active, i);
-        } else if ((c->ic_flags & modeflags) == modeflags)
+        } else if ((c->ic_flags & modeflags) != 0)
             setbit(ic->ic_chan_active, i);
     }
     /*

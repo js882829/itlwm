@@ -11,7 +11,7 @@
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 * GNU General Public License for more details.
 */
-/*    $OpenBSD: if_iwm.c,v 1.313 2020/07/10 13:22:20 patrick Exp $    */
+/*    $OpenBSD: if_iwm.c,v 1.316 2020/12/07 20:09:24 tobhe Exp $    */
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -607,10 +607,8 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
             goto out;
         }
     }
-    
-#if 0
+
     iwm_update_sched(sc, ring->qid, ring->cur, 0, 0);
-#endif
     /* Kick command ring. */
     ring->queued++;
     ring->cur = (ring->cur + 1) % IWM_TX_RING_COUNT;
