@@ -205,6 +205,8 @@ struct ieee80211_rxinfo {
 };
 #define IEEE80211_RXI_HWDEC		0x00000001
 #define IEEE80211_RXI_AMPDU_DONE	0x00000002
+#define IEEE80211_RXI_HWDEC_SAME_PN    0x00000004
+#define IEEE80211_RXI_SAME_SEQ         0x00000008
 
 /* Block Acknowledgement Record */
 struct ieee80211_tx_ba {
@@ -300,6 +302,9 @@ struct ieee80211_node {
 	u_int8_t		*ni_country;	/* country information XXX */
 	struct ieee80211_channel *ni_chan;
 	u_int8_t		ni_erp;		/* 11g only */
+#ifdef AIRPORT
+    u_int64_t       ni_age_ts;
+#endif
 
 	/* DTIM and contention free period (CFP) */
 	u_int8_t		ni_dtimcount;
