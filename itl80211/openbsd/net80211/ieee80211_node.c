@@ -1327,7 +1327,7 @@ ieee80211_node_choose_bss(struct ieee80211com *ic, int bgscan,
              */
             if (ni->ni_fails++ > 2)
                 ieee80211_free_node(ic, ni);
-            DPRINTF(("%s ni->ni_fails==TRUE\n", __FUNCTION__));
+            DPRINTF(("%s %s ni->ni_fails=%d\n", __FUNCTION__, ni->ni_essid, ni->ni_fails));
             continue;
         }
         
