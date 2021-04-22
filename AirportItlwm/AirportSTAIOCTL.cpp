@@ -7,6 +7,7 @@
 //
 
 #include "AirportItlwm.hpp"
+#include <sys/_netstat.h>
 
 extern IOCommandGate *_fCommandGate;
 
@@ -883,6 +884,7 @@ setPOWER(OSObject *object,
         (IFF_UP | IFF_RUNNING);
         if (pd->power_state[0] == 0) {
             if (isRunning) {
+                net80211_ifstats(fHalService->get80211Controller());
                 disableAdapter(fNetIf);
             }
         } else {
@@ -1002,7 +1004,8 @@ getLOCALE(OSObject *object,
 
 IOReturn AirportItlwm::
 getDEAUTH(OSObject *object,
-                          struct apple80211_deauth_data *da) {
+                          struct apple80211_deauth_data *da)
+{
     da->version = APPLE80211_VERSION;
     struct ieee80211com *ic = fHalService->get80211Controller();
     da->deauth_reason = ic->ic_deauth_reason;
@@ -1011,7 +1014,8 @@ getDEAUTH(OSObject *object,
 }
 
 IOReturn AirportItlwm::
-getASSOCIATION_STATUS(OSObject *object, struct apple80211_assoc_status_data *hv) {
+getASSOCIATION_STATUS(OSObject *object, struct apple80211_assoc_status_data *hv)
+{
     struct ieee80211com *ic = fHalService->get80211Controller();
     memset(hv, 0, sizeof(*hv));
     hv->version = APPLE80211_VERSION;
@@ -1035,7 +1039,8 @@ setSCANCACHE_CLEAR(OSObject *object, struct apple80211req *req)
 
 IOReturn AirportItlwm::
 setDEAUTH(OSObject *object,
-                          struct apple80211_deauth_data *da) {
+                          struct apple80211_deauth_data *da)
+{
     XYLog("%s\n", __FUNCTION__);
     return kIOReturnSuccess;
 }
@@ -1341,7 +1346,8 @@ setVIRTUAL_IF_DELETE(OSObject *object, struct apple80211_virt_if_delete_data *da
 }
 
 IOReturn AirportItlwm::
-getLINK_CHANGED_EVENT_DATA(OSObject *object, struct apple80211_link_changed_event_data *ed) {
+getLINK_CHANGED_EVENT_DATA(OSObject *object, struct apple80211_link_changed_event_data *ed)
+{
     if (ed == nullptr)
         return 16;
     
