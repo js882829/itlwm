@@ -116,6 +116,7 @@ releaseAll()
     }
     pci.pa_tag = NULL;
     pci.workloop = NULL;
+    rw_free(&com.sc_rwlock);
 }
 
 void ItlIwn::free()
@@ -581,7 +582,7 @@ iwn_attach(struct iwn_softc *sc, struct pci_attach_args *pa)
     iwn_radiotap_attach(sc);
 #endif
     timeout_set(&sc->calib_to, iwn_calib_timeout, sc);
-//    rw_init(&sc->sc_rwlock, "iwnlock");
+    rw_init(&sc->sc_rwlock, "iwnlock");
     task_set(&sc->init_task, iwn_init_task, sc, "iwn_init_task");
     return true;
 
@@ -784,14 +785,14 @@ iwn_init_task(void *arg1)
     ItlIwn *that = container_of(sc, ItlIwn, com);
     int s;
 
-//    rw_enter_write(&sc->sc_rwlock);
+    rw_enter_write(&sc->sc_rwlock);
     s = splnet();
 
     if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
         that->iwn_init(ifp);
 
     splx(s);
-//    rw_exit_write(&sc->sc_rwlock);
+    rw_exit_write(&sc->sc_rwlock);
 }
 
 int
@@ -3760,10 +3761,8 @@ _iwn_start_task(OSObject *target, void *arg0, void *arg1, void *arg2, void *arg3
 #ifndef AIRPORT
             ic->ic_state != IEEE80211_S_RUN ||
 #endif
-            (ic->ic_xflags & IEEE80211_F_TX_MGMT_ONLY)) {
-            ifp->if_snd->lockFlush();
+            (ic->ic_xflags & IEEE80211_F_TX_MGMT_ONLY))
             break;
-        }
 
         /* Encapsulate and send data frames. */
 //        m = ifq_dequeue(&ifp->if_snd);
@@ -3825,7 +3824,7 @@ iwn_ioctl(struct _ifnet *ifp, u_long cmd, caddr_t data)
     ItlIwn *that = container_of(sc, ItlIwn, com);
     int s, error = 0;
 
-//    error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
+    error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
     if (error)
         return error;
     s = splnet();
@@ -3874,7 +3873,7 @@ iwn_ioctl(struct _ifnet *ifp, u_long cmd, caddr_t data)
     }
 
     splx(s);
-//    rw_exit_write(&sc->sc_rwlock);
+    rw_exit_write(&sc->sc_rwlock);
     return error;
 }
 

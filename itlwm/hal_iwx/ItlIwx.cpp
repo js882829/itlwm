@@ -182,6 +182,7 @@ releaseAll()
     }
     pci.pa_tag = NULL;
     pci.workloop = NULL;
+    rw_free(&com.ioctl_rwl);
 }
 
 void ItlIwx::free()
@@ -8558,7 +8559,7 @@ iwx_init(struct _ifnet *ifp)
         sc->sc_tid_data[i].qid = IWX_INVALID_QUEUE;
     }
     
-    //    rw_assert_wrlock(&sc->ioctl_rwl);
+    rw_assert_wrlock(&sc->ioctl_rwl);
     
     generation = ++sc->sc_generation;
     
@@ -8644,10 +8645,8 @@ _iwx_start_task(OSObject *target, void *arg0, void *arg1, void *arg2, void *arg3
 #ifndef AIRPORT
             ic->ic_state != IEEE80211_S_RUN ||
 #endif
-            (ic->ic_xflags & IEEE80211_F_TX_MGMT_ONLY)) {
-            ifp->if_snd->lockFlush();
+            (ic->ic_xflags & IEEE80211_F_TX_MGMT_ONLY))
             break;
-        }
         
         //        IFQ_DEQUEUE(&ifp->if_snd, m);
         m = ifp->if_snd->lockDequeue();
@@ -8704,7 +8703,7 @@ iwx_stop(struct _ifnet *ifp)
     struct iwx_node *in = (struct iwx_node *)ic->ic_bss;
     int i, s = splnet();
     
-    //    rw_assert_wrlock(&sc->ioctl_rwl);
+    rw_assert_wrlock(&sc->ioctl_rwl);
     
     sc->sc_flags |= IWX_FLAG_SHUTDOWN; /* Disallow new tasks. */
     
@@ -8810,9 +8809,9 @@ iwx_ioctl(struct _ifnet *ifp, u_long cmd, caddr_t data)
      * Prevent processes from entering this function while another
      * process is tsleep'ing in it.
      */
-    //    err = rw_enter(&sc->ioctl_rwl, RW_WRITE | RW_INTR);
+    err = rw_enter(&sc->ioctl_rwl, RW_WRITE | RW_INTR);
     if (err == 0 && generation != sc->sc_generation) {
-        //        rw_exit(&sc->ioctl_rwl);
+        rw_exit(&sc->ioctl_rwl);
         return ENXIO;
     }
     if (err)
@@ -8848,7 +8847,7 @@ iwx_ioctl(struct _ifnet *ifp, u_long cmd, caddr_t data)
     }
     
     splx(s);
-    //    rw_exit(&sc->ioctl_rwl);
+    rw_exit(&sc->ioctl_rwl);
     
     return err;
 }
@@ -10452,7 +10451,7 @@ iwx_attach(struct iwx_softc *sc, struct pci_attach_args *pa)
     sc->sc_pcitag = pa->pa_tag;
     sc->sc_dmat = pa->pa_dmat;
     
-    //    rw_init(&sc->ioctl_rwl, "iwxioctl");
+    rw_init(&sc->ioctl_rwl, "iwxioctl");
     
     err = pci_get_capability(sc->sc_pct, sc->sc_pcitag,
                              PCI_CAP_PCIEXPRESS, &sc->sc_cap_off, NULL);
@@ -10833,9 +10832,9 @@ iwx_init_task(void *arg1)
     int generation = sc->sc_generation;
     int fatal = (sc->sc_flags & (IWX_FLAG_HW_ERR | IWX_FLAG_RFKILL));
     
-    //    rw_enter_write(&sc->ioctl_rwl);
+    rw_enter_write(&sc->ioctl_rwl);
     if (generation != sc->sc_generation) {
-        //        rw_exit(&sc->ioctl_rwl);
+        rw_exit(&sc->ioctl_rwl);
         splx(s);
         return;
     }
@@ -10848,7 +10847,7 @@ iwx_init_task(void *arg1)
     if (!fatal && (ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
         that->iwx_init(ifp);
     
-    //    rw_exit(&sc->ioctl_rwl);
+    rw_exit(&sc->ioctl_rwl);
     splx(s);
 }
 
@@ -10879,9 +10878,9 @@ iwx_activate(struct iwx_softc *sc, int act)
     switch (act) {
         case DVACT_QUIESCE:
             if (ifp->if_flags & IFF_RUNNING) {
-                //            rw_enter_write(&sc->ioctl_rwl);
+                rw_enter_write(&sc->ioctl_rwl);
                 iwx_stop(ifp);
-                //            rw_exit(&sc->ioctl_rwl);
+                rw_exit(&sc->ioctl_rwl);
             }
             break;
         case DVACT_RESUME:
